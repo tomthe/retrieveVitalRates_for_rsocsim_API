@@ -6,6 +6,8 @@ import os
 import requests
 #%%
 # Download the data
+source = "UN"
+#%%
 url = "https://population.un.org/wpp/assets/Excel Files/1_Indicator (Standard)/CSV_FILES/WPP2024_Fertility_by_Age1.csv.gz"
 fn = "download/WPP2024_Fertility_by_Age1.csv.gz"
 if not os.path.exists(fn):
@@ -35,15 +37,19 @@ dfyears = con.execute(q).fetchdf()
 # Add rows with rates = 0 for ages 0-12 and 56-111
 def add_zero_rows(df):
     years = df['year'].unique()
-    zero_rows = []
+    youngest_age = df['AgeGrpStart'].min()
+    oldest_age = df['AgeGrpStart'].max()
+    zero_rows_young = []
+    zero_rows_old = []
     for year in years:
-        zero_rows.append({'year': year, 'AgeGrpStart': 0, 'Age_up': 12, 'Month': 0, 'ASFR_mo': 0.0})
-        zero_rows.append({'year': year, 'AgeGrpStart': 56, 'Age_up': 111, 'Month': 0, 'ASFR_mo': 0.0})
-    return pd.concat([df, pd.DataFrame(zero_rows)], ignore_index=True)
+        zero_rows_young.append({'year': year, 'AgeGrpStart': 0, 'Age_up': youngest_age, 'Month': 0, 'ASFR_mo': 0.0})
+        zero_rows_old.append({'year': year, 'AgeGrpStart': oldest_age+1, 'Age_up': 111, 'Month': 0, 'ASFR_mo': 0.0})
+    return pd.concat([pd.DataFrame(zero_rows_young),df, pd.DataFrame(zero_rows_old)], ignore_index=True)
 #%%
 # create rate files for each country and year
-for iso2 in dfiso2["ISO2_code"][1:2]:
-    q = f"""SELECT Time as year, AgeGrpStart, ASFR FROM fertility 
+for iso2 in dfiso2["ISO2_code"]:
+    q = f"""SELECT Time as year, AgeGrpStart, ASFR 
+    FROM fertility 
     WHERE ISO2_code = '{iso2}'
       AND AgeGrpSpan = 1
       AND Variant = 'Medium'
@@ -53,25 +59,22 @@ for iso2 in dfiso2["ISO2_code"][1:2]:
     dfc['AgeGrpStart'] = dfc['AgeGrpStart'].replace({'12-': 12, '55+': 55}).astype(int)
     dfc['Age_up'] = dfc['AgeGrpStart'] + 1
     dfc['Month'] = 0
-    dfc['ASFR_mo'] = dfc['ASFR'] / 12
-    dfc = dfc.drop(columns=['ASFR'])
+    dfc['ASFR_mo'] = dfc['ASFR'] / 12.0 / 1000
+    # dfc = dfc.drop(columns=['ASFR'])
     
     # Add rows with rates = 0 for ages 0-12 and 56-111
     dfc = dfc.groupby('year').apply(add_zero_rows).reset_index(drop=True)
 
-
     for year in dfyears["Time"]:
         dfcy = dfc[dfc["year"] == year]
-        fn = f"outputdata/{iso2}/socsim_fert_{iso2}_{year}.txt"
+        fn = f"outputdata/{source}/{iso2}/socsim_fert_{iso2}_{year}.txt"
         # create the directory if it does not exist
         os.makedirs(os.path.dirname(fn), exist_ok=True)
         with open(fn, "w") as f:
             f.write(f"** Period (Monthly) Age-Specific Fertility Rates for {iso2} in {year}\n")
-            f.write("* Retrieved from the Human Fertility Database, www.humanfertility.org\n")
-            f.write("* Max Planck Institute for Demographic Research (Germany) and\n")
-            f.write("* Vienna Institute of Demography (Austria)\n")
             f.write(f"* Data downloaded on {pd.Timestamp.now().strftime('%d %b %Y %X %Z')}\n")
-            f.write("** NB: The original HFD annual rates have been converted into monthly rates\n")
+            f.write(f"* Source: {source}, downloaded from {url}\n")
+            f.write(f"** NB: The original annual rates have been converted into monthly rates by dividing by 12 (and 1000)\n")
             f.write("** The open age interval (55+) is limited to one year [55-56)\n\n")
 
             # Print birth rates (single females)
