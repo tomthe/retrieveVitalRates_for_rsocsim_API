@@ -4,6 +4,7 @@ import duckdb
 import buckaroo
 import os
 import requests
+import zipfile
 #%%
 # Download the data
 source = "UN"
@@ -65,30 +66,36 @@ for iso2 in dfiso2["ISO2_code"]:
     # Add rows with rates = 0 for ages 0-12 and 56-111
     dfc = dfc.groupby('year').apply(add_zero_rows).reset_index(drop=True)
 
-    for year in dfyears["Time"]:
-        dfcy = dfc[dfc["year"] == year]
-        fn = f"outputdata/{source}/{iso2}/socsim_fert_{iso2}_{year}.txt"
-        # create the directory if it does not exist
-        os.makedirs(os.path.dirname(fn), exist_ok=True)
-        with open(fn, "w") as f:
-            f.write(f"** Period (Monthly) Age-Specific Fertility Rates for {iso2} in {year}\n")
-            f.write(f"* Data downloaded on {pd.Timestamp.now().strftime('%d %b %Y %X %Z')}\n")
-            f.write(f"* Source: {source}, downloaded from {url}\n")
-            f.write(f"** NB: The original annual rates have been converted into monthly rates by dividing by 12 (and 1000)\n")
-            f.write("** The open age interval (55+) is limited to one year [55-56)\n\n")
+    directory = f"outputdata/{source}/{iso2}/"
+    os.makedirs(os.path.dirname(directory), exist_ok=True)
+    zip_filename = f"{directory}socsim_fert_{iso2}_rates.zip"
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as country_zip:
+        for year in dfyears["Time"]:
+            dfcy = dfc[dfc["year"] == year]
+            fn_in_zip = f"socsim_mort_{iso2}_{year}.txt"
+            
+            with country_zip.open(fn_in_zip, 'w') as zipf:
+                content = f"""** Period (Monthly) Age-Specific Fertility Rates for {iso2} in {year}
+* Data downloaded on {pd.Timestamp.now().strftime('%d %b %Y %X %Z')}
+* Source: {source}, downloaded from {url}
+** NB: The original annual rates have been converted into monthly rates by dividing by 12 (and 1000)
+** The open age interval (55+) is limited to one year [55-56)\n"""
+
 
             # Print birth rates (single females)
-            f.write("birth 1 F single 0\n")
-            for _, row in dfcy.iterrows():
-                f.write(f"{row['Age_up']} 0 {row['ASFR_mo']:.5f}\n")
-            f.write("\n")
+                content +="birth 1 F single 0\n"
+                for _, row in dfcy.iterrows():
+                    content +=f"{row['Age_up']} 0 {row['ASFR_mo']:.5f}\n"
+                content += "\n"
 
-            # Print birth rates (married females)
-            f.write("birth 1 F married 0\n")
-            for _, row in dfcy.iterrows():
-                f.write(f"{row['Age_up']} 0 {row['ASFR_mo']:.5f}\n")
+                # Print birth rates (married females)
+                content +="birth 1 F married 0\n"
+                for _, row in dfcy.iterrows():
+                    content += f"{row['Age_up']} 0 {row['ASFR_mo']:.5f}\n"
+                content += "\n"
+                zipf.write(content.encode())
 
-
+    print(f"Created {zip_filename}")
 
 # - * comments with *
 # - definition of block: """birth 1 F married 0""" - event, group??, gender, married, parity
