@@ -4,6 +4,7 @@ import requests
 import gzip
 import shutil
 import pandas as pd
+import zipfile
 
 tablename = "mall"
 source = "UN"
@@ -85,35 +86,43 @@ for iso2 in dfiso2["ISO2_code"]:
     dfc['Age_up'] = dfc['AgeGrpStart'] + 1
     dfc['Month'] = 0
     
+    oldest_age = dfc['Age_up'].max()
     # Add rows with rates = 0 for ages 0-12 and 56-111
     # dfc = dfc.groupby('year').apply(add_death_rows).reset_index(drop=True)
+    
+    # Create the directory if it does not exist
+    directory = f"outputdata/{source}/{iso2}/"
+    os.makedirs(os.path.dirname(directory), exist_ok=True)
+    zip_filename = f"{directory}socsim_mort_{iso2}_rates.zip"
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as country_zip:
+        for year in dfyears["Time"]:
+            dfcy = dfc[dfc["year"] == year]
+            fn_in_zip = f"socsim_mort_{iso2}_{year}.txt"
+            
+            with country_zip.open(fn_in_zip, 'w') as zipf:
+                content = f"**qx Period (Monthly) Age-Specific Mortality Rates for {iso2} in {year}\n"
+                content += f"* Data downloaded on {pd.Timestamp.now().strftime('%d %b %Y %X %Z')}\n"
+                content += f"* Source: {source}, downloaded from {url} and 3 others\n"
+                content += f"** NB: The original annual rates have been converted into monthly rates by 1-(1-qx_M)**(1/12) \n"
+                content += "** The open age interval (100+) is limited to one year\n\n"
 
-    for year in dfyears["Time"]:
-        dfcy = dfc[dfc["year"] == year]
-        fn = f"outputdata/{source}/{iso2}/socsim_mort_{iso2}_{year}.txt"
-        # Create the directory if it does not exist
-        os.makedirs(os.path.dirname(fn), exist_ok=True)
-        with open(fn, "w") as f:
-            f.write(f"**qx Period (Monthly) Age-Specific Mortality Rates for {iso2} in {year}\n")
-            f.write(f"* Data downloaded on {pd.Timestamp.now().strftime('%d %b %Y %X %Z')}\n")
-            f.write(f"* Source: {source}, downloaded from {url} and 3 others\n")
-            f.write(f"** NB: The original annual rates have been converted into monthly rates by 1-(1-qx_M)**(1/12) \n")
-            f.write("** The open age interval (100+) is limited to one year\n\n")
+                dfcyfemale = dfcy[dfcy["Sex"] == "Female"]
+                # Print birth rates (single females)
+                content += "death 1 F single 0\n"
+                for _, row in dfcyfemale.iterrows():
+                    content += f"{row['Age_up']} 0 {row['qx_monthly']:.7f}\n"
+                content += f"{oldest_age + 1} 0 {0.99999:.7f}\n"
 
-            dfcyfemale = dfcy[dfcy["Sex"] == "Female"]
-            # Print birth rates (single females)
-            f.write("death 1 F single 0\n")
-            for _, row in dfcyfemale.iterrows():
-                f.write(f"{row['Age_up']} 0 {row['qx_monthly']:.7f}\n")
-            f.write(f"{101} 0 {0.99999:.7f}\n")
+                content += "\n"
 
-            f.write("\n")
+                # Print death rates (single males)
+                dfcymale = dfcy[dfcy["Sex"] == "Male"]
+                content += "death 1 M single 0\n"
+                for _, row in dfcymale.iterrows():
+                    content += f"{row['Age_up']} 0 {row['qx_monthly']:.7f}\n"
+                content += f"{oldest_age + 1} 0 {0.99999:.7f}\n"
 
-            # Print death rates (single males)
-            dfcymale = dfcy[dfcy["Sex"] == "Male"]
-            f.write("death 1 M single 0\n")
-            for _, row in dfcymale.iterrows():
-                f.write(f"{row['Age_up']} 0 {row['qx_monthly']:.7f}\n")
-            f.write(f"{101} 0 {0.99999:.7f}\n")
+                zipf.write(content.encode('utf-8'))
+    print(f"Created {zip_filename}", f"{oldest_age=}")
 
 # %%
