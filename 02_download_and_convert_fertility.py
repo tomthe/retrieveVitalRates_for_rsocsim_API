@@ -72,7 +72,7 @@ for iso2 in dfiso2["ISO2_code"]:
     with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as country_zip:
         for year in dfyears["Time"]:
             dfcy = dfc[dfc["year"] == year]
-            fn_in_zip = f"socsim_mort_{iso2}_{year}.txt"
+            fn_in_zip = f"socsim_fert_{iso2}_{year}.txt"
             
             with country_zip.open(fn_in_zip, 'w') as zipf:
                 content = f"""** Period (Monthly) Age-Specific Fertility Rates for {iso2} in {year}
